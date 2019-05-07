@@ -1,7 +1,7 @@
 /* 
     TODO: 
-        Train and valid data set split
-        Cost function implementation
+        Train and valid data set split - DONE
+        Cost function implementation - 
         Back propagataion
         DONE
 
@@ -22,6 +22,8 @@ const int OUTPUT_SIZE = 10;
 const int AM_HIDDEN_LAYERS = 1;
 const int SIZE_HIDDEN_LAYER = 20;
 const int BATCH_SIZE = 200;
+const float SPLIT_FACTOR = 0.1;
+float LEARNING_RATE = 0.01;
 
 struct digit_img
 {
@@ -30,7 +32,7 @@ struct digit_img
 
 struct digit_label
 {
-    vector<int> num;
+    vector<float> num;
 };
 
 struct neuron
@@ -64,7 +66,6 @@ class network
         l_list.push_back(l_tmp);
         l_tmp.n_list.clear();
 
-
         //For every hidden layer in AM_HIDDEN_LAYERS, fix the hidden layer.
         for (int i0 = 0; i0 < AM_HIDDEN_LAYERS; i0++)
         {
@@ -88,25 +89,22 @@ class network
         l_list.push_back(l_tmp);
 
         //Loop through all layers except first one, set up weights (yes ineffective i'm tired leave me alone)
-        for(int i0 = 1; i0 < l_list.size(); i0++)
+        for (int i0 = 1; i0 < l_list.size(); i0++)
         {
-            int index_prevlayer = i0 -1;
+            int index_prevlayer = i0 - 1;
             int size_prevlayer = l_list[index_prevlayer].n_list.size();
 
             //For each node in layer
-            for(int i1 = 0; i1 < l_list[i0].n_list.size(); i1++)
+            for (int i1 = 0; i1 < l_list[i0].n_list.size(); i1++)
             {
                 //Add random weight for each node in previous layer
-                for(int i2 = 0; i2 < size_prevlayer; i2++)
+                for (int i2 = 0; i2 < size_prevlayer; i2++)
                 {
-                    float r = ((float)rand() / (RAND_MAX)); 
+                    float r = ((float)rand() / (RAND_MAX));
                     l_list[i0].n_list[i1].con_weights.push_back(r);
                 }
- 
             }
-       }
-
-
+        }
     }
 
     void print_network(network n, int spec_layer = -1)
@@ -142,79 +140,83 @@ class network
         }
     }
 
-    vector<neuron> feed_forward(vector<digit_img> img_list, vector<digit_label> label_list, bool stochastic = true)
+    vector<neuron> feed_forward(digit_img img)
     {
-        if (sizeof(img_list[0].pixel) != l_list[0].n_list.size())
+        if (sizeof(img.pixel) != l_list[0].n_list.size())
         {
             cout << "Input size of images doens't match network input size." << endl;
             throw stderr;
-        }
-        if (img_list.size() != label_list.size())
+        } 
+        //Feed img-pixel-data into input layer
+        for (int i = 0; i < sizeof(img.pixel); i++)
         {
-            cout << "Amount of labels doesn't match amount of images in set" << endl;
+            int pixel_val = img.pixel[i];
+            l_list[0].n_list[i].value = img.pixel[i];
+        }
+
+        //For every layer (except input)
+        for (int i0 = 1; i0 < l_list.size(); i0++)
+        {
+            //For every node in layer
+            for (int i1 = 0; i1 < l_list[i0].n_list.size(); i1++)
+            {
+                vector<neuron> prev_layer_nodes = l_list[i0 - 1].n_list;
+                vector<float> curr_node_weights = l_list[i0].n_list[i1].con_weights;
+                float curr_node_bias = l_list[i0].n_list[i1].bias;
+
+                float new_node_val = dot_product(prev_layer_nodes, curr_node_weights) + curr_node_bias;
+                new_node_val = sigmoid(new_node_val);
+                l_list[i0].n_list[i1].value = new_node_val;
+            }
+        }
+        
+        //Return output layer
+        return l_list[l_list.size() - 1].n_list;
+    }
+
+    float mean_squared_error(vector<float> output, vector<float> label){
+        if(output.size() != label.size())
+        {
+            cout << "Size of the output layer and the label is not the same." << endl;
             throw stderr;
         }
 
-        // If no stochastic: loop through entire set for one episode.
-        if (stochastic)
+        float loss = 0;
+        int n = output.size();
+        for(int i = 0; i < n; i++){loss += pow(label[i] - output[i], 2);}
+        loss = loss / n;
+
+        return loss;
+    }
+
+    void train(vector<digit_img> img_list, vector<digit_label> label_list, int epochs, float learning_rate)
+    {
+        vector<neuron> output;
+        float tot_loss = 0;
+        for(int i0 = 0; i0 < epochs; i0++)
         {
-            //For each picture in randomly chosen batch
-            for (int i0 = 0; i0 < BATCH_SIZE; i0++)
-            {
-                int img_index = rand() % img_list.size();
-
-                //Feed img-pixel-data into input layer
-                for (int i1 = 0; i1 < sizeof(img_list[img_index].pixel); i1++)
-                {
-                    int pixel_val = img_list[img_index].pixel[i1];
-                    l_list[0].n_list[i0].value = pixel_val;
-                }
-
-                //Feed forward operation on the rest of the layers
-                for (int i1 = 1; i1 < l_list.size(); i1++)
-                {
-                    for (int i2 = 0; i2 < l_list[i1].n_list.size(); i2++)
-                    {
-                        //Curr_node = dot_prod(prev_layer_all_nodes, weights_to_prev_nodes) + curr_node_bias.
-                        float n_value = dot_product(l_list[i1 - 1].n_list, l_list[i1].n_list[i2].con_weights) + l_list[i1].n_list[i2].bias;
-                        n_value = sigmoid(n_value);
-                        l_list[i1].n_list[i2].value = n_value;
-                    }
+            cout << " - Epoch: " << i0 << " -\nbatch: " << flush;
+            for(int i1 = 0; i1 < (int) (img_list.size()/BATCH_SIZE); i1++){
+                cout << i1 << " " << flush;
+                for(int i2 = 0; i2 < BATCH_SIZE; i2++){
+                    int rand_indx = rand() % img_list.size();
+                    output = feed_forward(img_list[rand_indx]);
+                    tot_loss = mean_squared_error(output, label_list[rand_indx]);
+                    //grad_descent(output, label_list[rand_indx]);
                 }
             }
+            cout << "epoch complete, loss: " << tot_loss<< endl;
         }
-        else
+    }
+
+    void print_output(vector<neuron> output_layer){
+
+        cout << "Output layer:" << endl;
+        for (int i = 0; i < output_layer.size(); i++)
         {
-            cout << "Loading images input into network... " << endl;
-            int cr0 = 0;
-            for (auto img : img_list)
-            {
-                //Load the pixel values into the network
-                cout << "Feed forward img: (" << cr0 << "/" << img_list.size() << ")" << endl;
-                for (int i0 = 0; i0 < sizeof(img.pixel); i0++)
-                {
-                    l_list[0].n_list[i0].value = (int)img.pixel[i0];
-                }
-
-                //For each other layer, perform feed-forward calculations
-                for (int i0 = 1; i0 < l_list.size(); i0++)
-                {
-                    cout << "Layer: " << i0 << endl;
-                    cout << "\tNode: ";
-                    for (int i1 = 0; i1 < l_list[i0].n_list.size(); i1++)
-                    {
-                        cout << i1 << " | " << flush;
-                        //Matrix (vector) multiplication of all preious nodes times weights to that connected node plus current node bias.
-                        l_list[i0].n_list[i1].value = dot_product(l_list[i0 - 1].n_list, l_list[i0].n_list[i1].con_weights) + l_list[i0].n_list[i1].bias;
-                    }
-                    cout << endl;
-                }
-                cr0++;
-            }
+            neuron n = output_layer[i];
+            cout << i << ": " << n.value << endl;
         }
-
-        //Return output layer
-        return l_list[l_list.size()-1].n_list;
     }
 };
 
@@ -265,17 +267,19 @@ int reverse_int(int i)
     return ((int)c0 << 24) + ((int)c1 << 16) + ((int)c2 << 8) + c3;
 }
 
-vector<int> one_hot_encode(int n)
+vector<float> one_hot_encode(float n)
 {
-    vector<int> ret = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    vector<float> ret = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     ret[n] = 1;
     return ret;
 }
 
-vector<digit_img> get_img_data(char *fname)
+vector<vector<digit_img>> get_img_data(char *fname, float split_am)
 {
-    vector<digit_img> ret;
+    vector<vector<digit_img>> ret;
+    vector<digit_img> training, valid;
 
+    //Read the file data
     ifstream file(fname);
     while (file.is_open())
     {
@@ -304,18 +308,32 @@ vector<digit_img> get_img_data(char *fname)
                 for (int i2 = 0; i2 < am_rows; i2++)
                 {
                     file.read((char *)&tmp.pixel[i2 + i1 * 28], sizeof(char));
+
                 }
             }
-            ret.push_back(tmp);
+            if (i0 < (int)(split_am * am_img))
+            {
+
+                valid.push_back(tmp);
+            }
+            else
+            {
+                training.push_back(tmp);
+            }
         }
         file.close();
     }
+    
+    ret.push_back(training);
+    ret.push_back(valid);
+
     return ret;
 }
 
-vector<digit_label> get_label_data(char *fname)
+vector<vector<digit_label>> get_label_data(char *fname, float split_am)
 {
-    vector<digit_label> ret;
+    vector<vector<digit_label>> ret;
+    vector<digit_label> training, valid;
 
     ifstream file(fname);
 
@@ -332,13 +350,23 @@ vector<digit_label> get_label_data(char *fname)
 
         for (int i = 0; i < am_img; i++)
         {
-            int tmp = -1;
+            char tmp = -1;
             file.read((char *)&tmp, sizeof(char));
-            digit_label label = {one_hot_encode(tmp)};
-            ret.push_back(label);
+            digit_label label = {one_hot_encode((float) tmp)};
+            if (i < (int)(split_am * am_img))
+            {
+                valid.push_back(label);
+            }
+            else
+            {
+                training.push_back(label);
+            }
         }
         file.close();
     }
+
+    ret.push_back(training);
+    ret.push_back(valid);
 
     return ret;
 }
@@ -346,25 +374,22 @@ vector<digit_label> get_label_data(char *fname)
 void run()
 {
     cout << "Loading images and labels..." << endl;
-    auto test_imgs = get_img_data((char *)"mnist/test-images/t10k-images.idx3-ubyte");
-    auto test_label = get_label_data((char *)"mnist/test-labels/t10k-labels.idx1-ubyte");
-    auto train_imgs = get_img_data((char *)"mnist/training-images/train-images.idx3-ubyte");
-    auto train_label = get_label_data((char *)"mnist/training-labels/train-labels.idx1-ubyte");
+    auto test_imgs = get_img_data((char *)"mnist/test-images/t10k-images.idx3-ubyte", SPLIT_FACTOR);
+    auto test_labels = get_label_data((char *)"mnist/test-labels/t10k-labels.idx1-ubyte", SPLIT_FACTOR);
+    auto all_imgs = get_img_data((char *)"mnist/training-images/train-images.idx3-ubyte", SPLIT_FACTOR);
+    auto all_labels = get_label_data((char *)"mnist/training-labels/train-labels.idx1-ubyte", SPLIT_FACTOR);
+
+    auto valid_imgs = all_imgs[0];
+    auto valid_labels = all_labels[0];
+    auto training_imgs = all_imgs[1];
+    auto training_labels = all_labels[1];
 
     cout << "Beginning training..." << endl;
 
     network agent;
+    //Network initialized by global variables
     agent.init_network();
-
-    vector<neuron> output = agent.feed_forward(train_imgs, train_label);
-
-    cout << "Output layer:" << endl;
-    for(int i = 0; i < output.size(); i++)
-    {
-        neuron n = output[i];
-        cout << i << ": " << n.value << endl; 
-    }
-
+    agent.train(training_imgs, training_labels, 5, LEARNING_RATE);
 }
 
 int main()
