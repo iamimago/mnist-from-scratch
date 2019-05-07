@@ -1,7 +1,7 @@
 /* 
     TODO: 
         Train and valid data set split - DONE
-        Cost function implementation - 
+        Cost function implementation - DONE... but not implemented
         Back propagataion
         DONE
 
@@ -201,9 +201,9 @@ class network
                 for(int i2 = 0; i2 < BATCH_SIZE; i2++){
                     int rand_indx = rand() % img_list.size();
                     output = feed_forward(img_list[rand_indx]);
-                    tot_loss = mean_squared_error(output, label_list[rand_indx]);
                     //grad_descent(output, label_list[rand_indx]);
                 }
+
             }
             cout << "epoch complete, loss: " << tot_loss<< endl;
         }
